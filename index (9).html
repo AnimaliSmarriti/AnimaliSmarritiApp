@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f2a37">
+<title>Fiuto — cani e gatti smarriti</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fiuto">
+<style>
+:root{
+  --lost:#e5484d; --lost-bg:#fdecec;
+  --found:#2f9e66; --found-bg:#e6f6ee;
+  --ink:#1f2a37; --muted:#6b7280; --line:#e5e7eb; --bg:#fff; --accent:#f5a524;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;font-family:Nunito,system-ui,sans-serif;color:var(--ink);overflow:hidden}
+#map{position:fixed;inset:0;z-index:1}
+button{font:inherit;cursor:pointer;border:0}
+/* Top bar */
+.top{position:fixed;z-index:500;left:10px;right:10px;top:calc(10px + var(--sat));display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.top>*{pointer-events:auto}
+.brand{display:flex;align-items:center;justify-content:space-between;background:var(--ink);color:#fff;border-radius:16px;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+.brand b{font-weight:900;font-size:20px;letter-spacing:.3px}
+.brand small{opacity:.7;font-size:12px;display:block;margin-top:-2px}
+.mode{font-size:11px;background:rgba(255,255,255,.14);padding:4px 8px;border-radius:99px}
+.seg{display:flex;background:#fff;border-radius:14px;padding:4px;box-shadow:0 4px 14px rgba(0,0,0,.12);gap:4px}
+.seg button{flex:1;background:none;padding:8px 4px;border-radius:10px;font-weight:800;font-size:13px;color:var(--muted)}
+.seg button.on{background:var(--ink);color:#fff}
+.seg button.on[data-v=perso]{background:var(--lost)}
+.seg button.on[data-v=trovato]{background:var(--found)}
+.seg.small button{font-size:12px;padding:6px 4px}
+/* Bottom actions */
+.actions{position:fixed;z-index:500;left:0;right:0;bottom:calc(18px + var(--sab));display:flex;justify-content:center;gap:12px;pointer-events:none}
+.actions>*{pointer-events:auto}
+.btn-main{background:var(--accent);color:var(--ink);font-weight:900;font-size:17px;padding:16px 26px;border-radius:99px;box-shadow:0 8px 24px rgba(245,165,36,.45)}
+.btn-round{position:relative;width:56px;height:56px;border-radius:50%;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,.18);font-size:22px}
+.badge{position:absolute;top:-4px;right:-4px;min-width:22px;height:22px;border-radius:11px;background:var(--lost);color:#fff;font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;padding:0 6px;border:2px solid #fff}
+.badge:empty{display:none}
+/* Markers */
+.pin{width:42px;height:42px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.3)}
+.pin span{transform:rotate(45deg);font-size:20px}
+.pin.perso{background:var(--lost)} .pin.trovato{background:var(--found)}
+.pin.seen{background:#e8a33d}
+.pin.hl{outline:4px solid var(--accent)}
+/* Sheet */
+.backdrop{position:fixed;inset:0;background:rgba(15,23,42,.35);z-index:900;opacity:0;pointer-events:none;transition:.2s}
+.backdrop.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;z-index:901;left:0;right:0;bottom:0;max-height:88vh;background:var(--bg);border-radius:22px 22px 0 0;transform:translateY(105%);transition:transform .28s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;box-shadow:0 -10px 30px rgba(0,0,0,.15);max-width:640px;margin:0 auto}
+.sheet.open{transform:none}
+.grab{width:44px;height:5px;border-radius:3px;background:#d1d5db;margin:10px auto 4px;flex:none}
+.sheet .body{overflow-y:auto;padding:6px 18px calc(22px + var(--sab))}
+h2{margin:6px 0 10px;font-size:21px;font-weight:900}
+h3{margin:18px 0 8px;font-size:15px;font-weight:900}
+.muted{color:var(--muted);font-size:13px}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0 4px}
+.choice button{padding:20px 10px;border-radius:18px;font-weight:900;font-size:16px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.choice button i{font-style:normal;font-size:34px}
+.choice .c-lost{background:var(--lost-bg);color:var(--lost)}
+.choice .c-found{background:var(--found-bg);color:var(--found)}
+label.f{display:block;font-weight:800;font-size:13px;margin:14px 0 6px}
+input[type=text],input[type=tel],input[type=datetime-local],textarea,select{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px;font:inherit;font-size:16px;background:#fff;color:var(--ink)}
+textarea{min-height:76px;resize:vertical}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:8px 12px;border-radius:99px;background:#f3f4f6;font-weight:700;font-size:14px;color:var(--ink)}
+.chip.on{background:var(--ink);color:#fff}
+.tag{display:inline-block;padding:4px 10px;border-radius:99px;background:#f3f4f6;font-size:12px;font-weight:800;margin:0 4px 4px 0}
+.tag.perso{background:var(--lost-bg);color:var(--lost)} .tag.trovato{background:var(--found-bg);color:var(--found)}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.switch{display:flex;align-items:center;gap:10px;font-weight:700;margin-top:14px}
+.switch input{width:22px;height:22px}
+.photo-in{display:flex;align-items:center;gap:12px}
+.photo-in .ph{width:72px;height:72px;border-radius:14px;background:#f3f4f6 center/cover;display:flex;align-items:center;justify-content:center;font-size:28px;flex:none}
+.photo-in label{background:#f3f4f6;padding:10px 14px;border-radius:12px;font-weight:800;font-size:14px}
+.submit{width:100%;margin-top:20px;padding:16px;border-radius:14px;color:#fff;font-weight:900;font-size:17px}
+.submit.perso{background:var(--lost)} .submit.trovato{background:var(--found)}
+.ghost{width:100%;margin-top:10px;padding:13px;border-radius:14px;background:#f3f4f6;font-weight:800}
+.hero{width:100%;aspect-ratio:4/3;border-radius:18px;background:#f3f4f6 center/cover;display:flex;align-items:center;justify-content:center;font-size:80px;margin-bottom:10px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px;margin-top:8px}
+.kv dt{color:var(--muted);font-weight:700}.kv dd{margin:0;font-weight:700}
+.contact{display:flex;gap:8px;align-items:center;justify-content:space-between;background:#f9fafb;border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-top:14px}
+.contact a{background:var(--ink);color:#fff;text-decoration:none;font-weight:800;padding:10px 14px;border-radius:10px;white-space:nowrap}
+.card{display:flex;gap:12px;align-items:center;padding:10px;border:1.5px solid var(--line);border-radius:16px;margin-bottom:8px;background:#fff;width:100%;text-align:left}
+.card .th{width:56px;height:56px;border-radius:12px;background:#f3f4f6 center/cover;display:flex;align-items:center;justify-content:center;font-size:26px;flex:none}
+.card .tx{flex:1;min-width:0}
+.card .tx b{display:block;font-size:15px}
+.card .tx span{font-size:12px;color:var(--muted)}
+.score{font-weight:900;font-size:15px;padding:6px 8px;border-radius:10px;background:#fff7e6;color:#b4690e;flex:none}
+.score.hi{background:#e6f6ee;color:var(--found)}
+.pair{border:1.5px solid var(--line);border-radius:16px;padding:8px;margin-bottom:10px}
+.pair .card{border:0;margin:0;padding:6px}
+.pair .mid{display:flex;align-items:center;gap:8px;padding:0 8px;font-size:12px;color:var(--muted);font-weight:800}
+.pair .mid hr{flex:1;border:0;border-top:1.5px dashed var(--line)}
+.alert{background:#fff7e6;border-radius:14px;padding:12px 14px;font-weight:800;color:#8a5207;margin:6px 0 10px}
+.empty{text-align:center;color:var(--muted);padding:24px 10px}
+/* Pick mode */
+.picker{display:none}
+body.picking .picker{display:block}
+body.picking .actions,body.picking .seg{display:none}
+.crosshair{position:fixed;z-index:600;left:50%;top:50%;transform:translate(-50%,-100%);pointer-events:none;font-size:46px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.35))}
+.pick-bar{position:fixed;z-index:600;left:10px;right:10px;bottom:calc(18px + var(--sab));background:#fff;border-radius:18px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:620px;margin:0 auto}
+.pick-bar p{margin:0 0 10px;font-weight:800}
+.pick-bar .row button{padding:13px;border-radius:12px;font-weight:900}
+.toast{position:fixed;z-index:1000;left:50%;top:calc(80px + var(--sat));transform:translateX(-50%) translateY(-20px);background:var(--ink);color:#fff;padding:12px 18px;border-radius:14px;font-weight:800;opacity:0;transition:.25s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%)}
+/* Chat */
+.sheet.full{height:88vh}
+.sheet.full .body{display:flex;flex-direction:column;padding-bottom:0;flex:1;overflow:hidden}
+.chat-head{display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1.5px solid var(--line)}
+.chat-head .th{width:44px;height:44px;border-radius:12px;background:#f3f4f6 center/cover;display:flex;align-items:center;justify-content:center;font-size:22px;flex:none}
+.chat-head b{display:block}.chat-head .back{background:#f3f4f6;width:36px;height:36px;border-radius:50%;font-size:18px;flex:none}
+.msgs{flex:1;overflow-y:auto;padding:12px 2px;display:flex;flex-direction:column;gap:6px}
+.msg{max-width:80%;padding:9px 13px;border-radius:18px;font-size:15px;line-height:1.35;word-wrap:break-word;white-space:pre-wrap}
+.msg.me{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:6px}
+.msg.them{align-self:flex-start;background:#f3f4f6;border-bottom-left-radius:6px}
+.msg time{display:block;font-size:10px;opacity:.6;margin-top:3px;text-align:right}
+.msg.sys{align-self:center;background:#fff7e6;color:#8a5207;font-size:12px;font-weight:800;border-radius:10px}
+.quick{display:flex;gap:6px;overflow-x:auto;padding:6px 0;flex:none}
+.quick button{white-space:nowrap;background:#f3f4f6;padding:7px 12px;border-radius:99px;font-weight:700;font-size:13px}
+.composer{display:flex;gap:8px;padding:8px 0 calc(12px + var(--sab));flex:none}
+.composer textarea{min-height:44px;max-height:120px;border-radius:22px;padding:10px 14px;resize:none}
+.composer button{width:46px;height:46px;border-radius:50%;background:var(--accent);font-size:20px;flex:none;align-self:flex-end}
+.unread{background:var(--lost);color:#fff;border-radius:99px;font-size:12px;font-weight:900;padding:3px 8px;flex:none}
+.btn-chat{width:100%;margin-top:14px;padding:15px;border-radius:14px;background:var(--ink);color:#fff;font-weight:900;font-size:16px}
+.warn{align-self:flex-start;max-width:80%;background:#fdecec;color:#b42318;font-size:12px;font-weight:800;padding:8px 12px;border-radius:12px}
+.chat-head .menu{position:relative}
+.dropdown{position:absolute;right:0;top:42px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.18);overflow:hidden;z-index:5;min-width:210px;display:none}
+.dropdown.open{display:block}
+.dropdown button{display:block;width:100%;text-align:left;background:none;padding:13px 16px;font-weight:800;border-bottom:1px solid var(--line)}
+.blocked{background:#f3f4f6;border-radius:12px;padding:12px;text-align:center;font-weight:800;color:var(--muted);margin:8px 0 calc(12px + var(--sab))}
+/* Confronto match */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cmp .hero{aspect-ratio:1;font-size:54px;margin:0}
+.cmp-t{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+.cmp-t td{padding:7px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+.cmp-t td:first-child{color:var(--muted);font-weight:700;width:26%}
+.cmp-t .ok{color:var(--found);font-weight:900}.cmp-t .ko{color:var(--lost);font-weight:900}
+.yesno{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.yesno button{padding:15px;border-radius:14px;font-weight:900;font-size:16px}
+.mini{font-size:12px;font-weight:900;padding:6px 10px;border-radius:10px;background:#f3f4f6;flex:none}
+.chip-ok{display:inline-block;background:#e6f6ee;color:var(--found);font-weight:900;font-size:12px;padding:4px 10px;border-radius:99px}
+/* Volantino */
+.flyer-prev{width:100%;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);display:block}
+.btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.btn-grid button{padding:13px;border-radius:12px;font-weight:900;background:#f3f4f6}
+#printArea{display:none}
+@media print{ body>*:not(#printArea){display:none!important} #printArea{display:block!important} #printArea img{width:100%;height:auto} html,body{overflow:visible;height:auto} }
+.top-btn{background:rgba(255,255,255,.14);color:#fff;width:34px;height:34px;border-radius:50%;font-size:16px;margin-left:6px}
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.set-row b{display:block}
+input[type=range]{width:100%}
+.leaflet-control-attribution{font-size:9px}
+.leaflet-top{top:calc(130px + var(--sat))}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="top">
+  <div class="brand">
+    <div><b>🐾 Fiuto</b><small>Cani e gatti smarriti vicino a te</small></div>
+    <div style="display:flex;align-items:center"><span class="mode" id="modeLabel"></span><button class="top-btn" id="btnSettings" title="Impostazioni">⚙️</button></div>
+  </div>
+  <div class="seg" id="segTipo">
+    <button data-v="tutti" class="on">Tutti</button>
+    <button data-v="perso">🔴 Cercano</button>
+    <button data-v="trovato">🟢 Trovati/visti</button>
+  </div>
+  <div class="seg small" id="segSpecie">
+    <button data-v="tutte" class="on">Tutti gli animali</button>
+    <button data-v="cane">🐶 Cani</button>
+    <button data-v="gatto">🐱 Gatti</button>
+  </div>
+</div>
+
+<div class="actions">
+  <button class="btn-round" id="btnLocate" title="La mia posizione">📍</button>
+  <button class="btn-main" id="btnAdd">＋ Segnala</button>
+  <button class="btn-round" id="btnMatch" title="Match">🔗<span class="badge" id="badge"></span></button>
+  <button class="btn-round" id="btnInbox" title="Messaggi">💬<span class="badge" id="badgeChat"></span></button>
+</div>
+
+<div class="picker">
+  <div class="crosshair">📍</div>
+  <div class="pick-bar">
+    <p id="pickText">Sposta la mappa sul punto esatto</p>
+    <div class="row">
+      <button id="pickGps" style="background:#f3f4f6">🎯 Sono qui</button>
+      <button id="pickCancel" style="background:#f3f4f6">Annulla</button>
+      <button id="pickOk" style="background:var(--ink);color:#fff">Conferma</button>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+<div class="sheet" id="sheet"><div class="grab"></div><div class="body" id="sheetBody"></div></div>
+<div class="toast" id="toast"></div>
+<div id="printArea"></div>
+
+<script>
+/* =========================================================
+   CONFIGURAZIONE
+   Lascia vuoto per la modalità DEMO (dati salvati nel browser).
+   Inserisci URL e anon key di Supabase per la modalità condivisa
+   (esegui prima schema.sql nel SQL editor).
+   ========================================================= */
+const CONFIG = {
+  SUPABASE_URL: '',
+  SUPABASE_ANON_KEY: '',
+  BUCKET: 'foto',
+  CENTRO: [42.5636, 12.6427], // Terni
+  GIORNI_VISIBILI: 60,
+  TELEGRAM_BOT: '',           // username del bot senza @, es. 'FiutoTerniBot'
+  TELEGRAM_CANALE: '',        // username del canale pubblico senza @, es. 'fiutoterni' (facoltativo)
+  VAPID_PUBLIC_KEY: '',       // facoltativo: push del browser in alternativa a Telegram (vedi README)
+  GRIGLIA: 0.003              // ~300 m: dimensione della cella per la posizione approssimata
+};
+const RAGGIO_APPROX = 300;    // metri del cerchio mostrato sulla mappa
+
+const COLORI = ['nero','bianco','marrone','grigio','fulvo/rosso','crema/beige','tigrato','tricolore','pezzato'];
+const TAGLIE = ['piccola','media','grande'];
+const COLS = 'id,created_at,tipo,specie,nome,razza,colori,taglia,sesso,collare,al_sicuro,descrizione,contatto,foto_url,lat,lng,quando,stato,owner_id,approssimata,microchip_hash';
+
+const sb = (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase)
+  ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
+
+/* ---------- utility ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + Math.random().toString(16).slice(2));
+const ls = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+function km(a, b){
+  const R = 6371, t = x => x * Math.PI / 180;
+  const dLat = t(b.lat - a.lat), dLng = t(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function ago(d){
+  const s = (Date.now() - new Date(d)) / 1000;
+  if (s < 3600) return Math.max(1, Math.round(s/60)) + ' min fa';
+  if (s < 86400) return Math.round(s/3600) + ' ore fa';
+  const g = Math.round(s/86400); return g === 1 ? 'ieri' : g + ' giorni fa';
+}
+/* Posizione approssimata: aggancio a una griglia fissa (sempre la stessa cella → nessuna triangolazione ripubblicando) */
+function approx(lat, lng){
+  const g = CONFIG.GRIGLIA;
+  return { lat: (Math.floor(lat / g) + .5) * g, lng: (Math.floor(lng / g) + .5) * g };
+}
+/* Microchip: in pubblico va solo l'hash, mai il numero */
+async function hashChip(s){
+  const d = String(s || '').replace(/\D/g, '');
+  if (d.length < 9) return null;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('fiuto:' + d));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+/* Anti-truffa: parole tipiche di chi chiede soldi */
+const SCAM_RE = /(ricaric|paypal|postepay|bonific|iban|western\s*union|money\s*gram|\bsoldi\b|\beuro\b|€|codice\s*(amazon|regalo|coupon)|gift\s*card|anticip|spese\s*di\s*(spedizione|trasporto)|cauzion|riscatto|ricompens)/i;
+function fmtKm(d){ return d < 1 ? Math.round(d*1000) + ' m' : d.toFixed(1).replace('.', ',') + ' km'; }
+function toast(t){ const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), 2600); }
+const emoji = r => r.specie === 'gatto' ? '🐱' : '🐶';
+function titolo(r){
+  const a = r.specie === 'gatto' ? 'Gatto' : 'Cane';
+  if (r.tipo === 'perso') return `${a} smarrito${r.nome ? ' — ' + r.nome : ''}`;
+  return r.al_sicuro ? `${a} trovato (al sicuro)` : `${a} avvistato`;
+}
+
+/* ---------- archivio dati (Supabase o demo locale) ---------- */
+/* Identità: in live è l'utente anonimo di Supabase Auth, in demo un id salvato nel browser */
+let ME = ls.get('fiuto_me', null) || (() => { const id = uid(); ls.set('fiuto_me', id); return id; })();
+const isMine = r => r && r.owner_id === ME;
+const myReports = () => Store.list.filter(isMine);
+
+function seed(){
+  const c = CONFIG.CENTRO, h = 3600e3, now = Date.now();
+  const p = (dl, dg) => ({ lat: c[0] + dl, lng: c[1] + dg });
+  const base = [
+    { tipo:'perso', specie:'cane', nome:'Rocky', razza:'Meticcio pastore', colori:['nero','fulvo/rosso'], taglia:'media', sesso:'M', collare:true, descrizione:'Scappato dal giardino, collare rosso con medaglietta. Un po\' timoroso.', contatto:'333 000 0001', ...p(0.004,-0.006), quando:new Date(now-30*h) },
+    { tipo:'trovato', specie:'cane', razza:'Simil pastore', colori:['nero','fulvo/rosso'], taglia:'media', sesso:'M', collare:true, al_sicuro:false, descrizione:'Visto correre lungo il Nera vicino al ponte, collare rosso.', contatto:'333 000 0002', ...p(-0.006,0.004), quando:new Date(now-6*h) },
+    { tipo:'perso', specie:'gatto', nome:'Luna', razza:'Europeo', colori:['grigio','tigrato'], taglia:'piccola', sesso:'F', collare:false, descrizione:'Gatta sterilizzata, molto socievole. Non esce mai di casa.', contatto:'333 000 0003', ...p(-0.012,-0.012), quando:new Date(now-72*h) },
+    { tipo:'trovato', specie:'gatto', colori:['grigio','tigrato'], taglia:'piccola', sesso:'?', al_sicuro:true, descrizione:'Gatta tigrata grigia trovata sotto una macchina, ora è da me.', contatto:'333 000 0004', ...p(-0.009,-0.018), quando:new Date(now-20*h) },
+    { tipo:'perso', specie:'cane', nome:'Biscotto', razza:'Jack Russell', colori:['bianco','marrone'], taglia:'piccola', sesso:'M', collare:true, descrizione:'Microchippato, risponde al nome.', contatto:'333 000 0005', ...p(0.018,0.015), quando:new Date(now-10*h) },
+    { tipo:'trovato', specie:'cane', razza:'Labrador', colori:['crema/beige'], taglia:'grande', sesso:'F', al_sicuro:true, descrizione:'Labrador femmina senza collare, molto dolce.', contatto:'333 000 0006', ...p(0.025,-0.02), quando:new Date(now-48*h) },
+    { tipo:'trovato', specie:'gatto', colori:['nero'], taglia:'piccola', sesso:'?', al_sicuro:false, descrizione:'Gatto nero spaventato in un cortile.', contatto:'333 000 0007', ...p(0.002,0.022), quando:new Date(now-3*h) }
+  ];
+  return base.map(r => r.al_sicuro ? { ...r, ...approx(r.lat, r.lng), approssimata:true } : r).map((r, i) => ({ id:uid(), owner_id:'demo-' + i, created_at:new Date(r.quando).toISOString(), stato:'attivo', foto_url:null, al_sicuro:false, nome:null, collare:null, ...r, quando:new Date(r.quando).toISOString() }));
+}
+
+const Store = {
+  list: [],
+  async load(){
+    if (sb){
+      const since = new Date(Date.now() - CONFIG.GIORNI_VISIBILI*864e5).toISOString();
+      const { data, error } = await sb.from('segnalazioni').select(COLS).eq('stato','attivo').gte('quando', since).order('quando', { ascending:false });
+      if (error){ toast('Errore caricamento: ' + error.message); this.list = []; }
+      else this.list = data;
+    } else {
+      this.list = ls.get('fiuto_demo', null) || seed();
+      this.persist();
+    }
+  },
+  persist(){ if (!sb) ls.set('fiuto_demo', this.list); },
+  async uploadPhoto(blob){
+    if (!blob) return null;
+    if (!sb) return await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+    const path = `${uid()}.jpg`;
+    const { error } = await sb.storage.from(CONFIG.BUCKET).upload(path, blob, { contentType:'image/jpeg' });
+    if (error){ toast('Foto non caricata: ' + error.message); return null; }
+    return sb.storage.from(CONFIG.BUCKET).getPublicUrl(path).data.publicUrl;
+  },
+  async add(r){
+    if (sb){
+      const { data, error } = await sb.from('segnalazioni').insert(r).select(COLS).single();
+      if (error) throw error;
+      if (!this.list.find(x => x.id === data.id)) this.list.unshift(data);
+      return data;
+    }
+    const rec = { id:uid(), created_at:new Date().toISOString(), stato:'attivo', owner_id:ME, ...r };
+    this.list.unshift(rec); this.persist();
+    return rec;
+  },
+  async resolve(id){
+    if (sb){
+      const { error } = await sb.from('segnalazioni').update({ stato:'risolto' }).eq('id', id);
+      if (error) throw error;
+    }
+    this.list = this.list.filter(x => x.id !== id); this.persist();
+  },
+  subscribe(cb){
+    if (!sb) return;
+    sb.channel('segnalazioni').on('postgres_changes', { event:'*', schema:'public', table:'segnalazioni' }, payload => {
+      const r = payload.new;
+      if (!r || !r.id) return;
+      this.list = this.list.filter(x => x.id !== r.id);
+      if (r.stato === 'attivo') this.list.unshift(r);
+      cb(r, payload.eventType);
+    }).subscribe();
+  }
+};
+
+/* ---------- SICUREZZA: blocchi, segnalazioni di abuso, esiti dei match ---------- */
+const Safety = {
+  blocked: new Set(ls.get('fiuto_blocchi', [])),     // utenti che HO bloccato
+  esiti: ls.get('fiuto_esiti', {}),                  // "segA|segB" -> 'si' | 'no'
+  key(a, b){ return [a, b].sort().join('|'); },
+  async load(){
+    if (!sb) return;
+    const [b, e] = await Promise.all([
+      sb.from('blocchi').select('blocked_id').eq('blocker_id', ME),
+      sb.from('match_esiti').select('seg_a,seg_b,esito').eq('utente_id', ME)
+    ]);
+    if (!b.error) this.blocked = new Set(b.data.map(x => x.blocked_id));
+    if (!e.error) e.data.forEach(x => this.esiti[this.key(x.seg_a, x.seg_b)] = x.esito);
+  },
+  async block(userId){
+    this.blocked.add(userId); ls.set('fiuto_blocchi', [...this.blocked]);
+    if (sb){ const { error } = await sb.from('blocchi').insert({ blocked_id:userId }); if (error && error.code !== '23505') throw error; }
+  },
+  async report(tipo, id, motivo){
+    if (sb){ const { error } = await sb.from('abusi').insert({ target_tipo:tipo, target_id:id, motivo }); if (error && error.code !== '23505') throw error; }
+  },
+  async setEsito(a, b, esito){
+    const [x, y] = [a, b].sort();
+    this.esiti[this.key(a, b)] = esito; ls.set('fiuto_esiti', this.esiti);
+    if (sb) await sb.from('match_esiti').upsert({ seg_a:x, seg_b:y, esito }, { onConflict:'utente_id,seg_a,seg_b' });
+  },
+  esito(a, b){ return this.esiti[this.key(a, b)]; }
+};
+
+/* ---------- MATCH ----------
+   Punteggio 0–100 tra una segnalazione "perso" e una "trovato" della stessa specie:
+   distanza 35 · colori 25 · tempo 20 · taglia 10 · sesso 5 · razza 5           */
+function score(a, b){
+  const lost = a.tipo === 'perso' ? a : b, found = a.tipo === 'perso' ? b : a;
+  if (lost.tipo === found.tipo || lost.specie !== found.specie) return 0;
+  if (lost.microchip_hash && found.microchip_hash) return lost.microchip_hash === found.microchip_hash ? 100 : 0;
+  const d = km(lost, found);
+  const maxKm = lost.specie === 'gatto' ? 4 : 12;           // i gatti si spostano meno
+  if (d > maxKm * 1.5) return 0;
+  let s = 35 * Math.max(0, 1 - d / maxKm);
+
+  const days = (new Date(found.quando) - new Date(lost.quando)) / 864e5;
+  if (days < -1) return 0;                                   // visto prima che fosse perso
+  s += 20 * Math.max(0, 1 - Math.max(0, days) / 30);
+
+  const ca = new Set(lost.colori || []), cb = new Set(found.colori || []);
+  if (ca.size && cb.size){
+    const inter = [...ca].filter(x => cb.has(x)).length, uni = new Set([...ca, ...cb]).size;
+    s += 25 * inter / uni;
+  } else s += 8;
+
+  const ti = TAGLIE.indexOf(lost.taglia), tj = TAGLIE.indexOf(found.taglia);
+  if (ti < 0 || tj < 0) s += 4; else if (ti === tj) s += 10; else if (Math.abs(ti - tj) === 1) s += 3;
+
+  const known = x => x === 'M' || x === 'F';
+  if (known(lost.sesso) && known(found.sesso) && lost.sesso !== found.sesso) s *= 0.5;
+  else s += 5;
+
+  const ra = (lost.razza || '').toLowerCase(), rb = (found.razza || '').toLowerCase();
+  if (ra && rb && ra.split(/\s+/).some(w => w.length > 3 && rb.includes(w))) s += 5;
+
+  return Math.round(Math.min(100, s));
+}
+const SOGLIA = 50;
+function matchesFor(r){
+  return Store.list.filter(x => x.id !== r.id && x.tipo !== r.tipo)
+    .filter(x => Safety.esito(r.id, x.id) !== 'no')
+    .map(x => ({ r:x, s:score(r, x), d:km(r, x), ok:Safety.esito(r.id, x.id) === 'si' }))
+    .filter(m => m.s >= SOGLIA).sort((a, b) => (b.ok - a.ok) || (b.s - a.s));
+}
+function allPairs(){
+  const out = [];
+  for (const l of Store.list.filter(x => x.tipo === 'perso'))
+    for (const f of Store.list.filter(x => x.tipo === 'trovato')){
+      if (Safety.esito(l.id, f.id) === 'no') continue;
+      const s = score(l, f); if (s >= SOGLIA) out.push({ l, f, s, d:km(l, f) });
+    }
+  return out.sort((a, b) => b.s - a.s);
+}
+
+/* ---------- MAPPA ---------- */
+const map = L.map('map', { zoomControl:false, attributionControl:true }).setView(CONFIG.CENTRO, 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap' }).addTo(map);
+const layer = L.layerGroup().addTo(map);
+const filtro = { tipo:'tutti', specie:'tutte' };
+let highlight = new Set(), myPos = null, myMarker = null;
+
+function render(){
+  layer.clearLayers();
+  for (const r of Store.list){
+    if (filtro.tipo !== 'tutti' && r.tipo !== filtro.tipo) continue;
+    if (filtro.specie !== 'tutte' && r.specie !== filtro.specie) continue;
+    const cls = r.tipo === 'perso' ? 'perso' : (r.al_sicuro ? 'trovato' : 'trovato seen');
+    const icon = L.divIcon({ className:'', iconSize:[42,42], iconAnchor:[21,42],
+      html:`<div class="pin ${cls} ${highlight.has(r.id) ? 'hl' : ''}"><span>${emoji(r)}</span></div>` });
+    if (r.approssimata){
+      const col = r.tipo === 'perso' ? '#e5484d' : '#2f9e66';
+      L.circle([r.lat, r.lng], { radius:RAGGIO_APPROX, color:col, weight:1.5, dashArray:'4 4', fillColor:col, fillOpacity:.12, interactive:false }).addTo(layer);
+    }
+    L.marker([r.lat, r.lng], { icon }).on('click', () => showDetail(r.id)).addTo(layer);
+  }
+  updateBadge();
+}
+function updateBadge(){
+  const my = myReports();
+  const n = my.length ? my.reduce((t, r) => t + matchesFor(r).length, 0) : allPairs().length;
+  $('#badge').textContent = n || '';
+}
+function setSeg(id, key){
+  $(id).addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...$(id).children].forEach(x => x.classList.toggle('on', x === b));
+    filtro[key] = b.dataset.v; render();
+  });
+}
+setSeg('#segTipo', 'tipo'); setSeg('#segSpecie', 'specie');
+
+function locate(fly = true){
+  return new Promise(res => {
+    if (!navigator.geolocation){ toast('Geolocalizzazione non disponibile'); return res(null); }
+    navigator.geolocation.getCurrentPosition(p => {
+      myPos = { lat:p.coords.latitude, lng:p.coords.longitude };
+      if (myMarker) myMarker.setLatLng([myPos.lat, myPos.lng]);
+      else myMarker = L.circleMarker([myPos.lat, myPos.lng], { radius:9, color:'#fff', weight:3, fillColor:'#2563eb', fillOpacity:1 }).addTo(map);
+      if (fly) map.flyTo([myPos.lat, myPos.lng], 16, { duration:.8 });
+      res(myPos);
+    }, () => { toast('Posizione non disponibile'); res(null); }, { enableHighAccuracy:true, timeout:10000 });
+  });
+}
+$('#btnLocate').onclick = () => locate(true);
+
+/* ---------- SHEET ---------- */
+function openSheet(html, full = false){ $('#sheet').classList.toggle('full', full); if (!full) Chat.openId = null; $('#sheetBody').innerHTML = html; $('#sheetBody').scrollTop = 0; $('#sheet').classList.add('open'); $('#backdrop').classList.add('open'); }
+function closeSheet(){ Chat.openId = null; $('#sheet').classList.remove('open'); $('#backdrop').classList.remove('open'); if (highlight.size){ highlight.clear(); render(); } }
+$('#backdrop').onclick = closeSheet;
+
+function thumb(r, cls){ return r.foto_url ? `<div class="${cls}" style="background-image:url('${esc(r.foto_url)}')"></div>` : `<div class="${cls}">${emoji(r)}</div>`; }
+function cardHTML(r, extra = ''){
+  return `<button class="card" data-open="${r.id}">${thumb(r, 'th')}
+    <div class="tx"><b>${esc(titolo(r))}</b><span>${esc([r.razza, (r.colori || []).join(', '), r.taglia].filter(Boolean).join(' · '))}</span><br><span>${ago(r.quando)}</span></div>${extra}</button>`;
+}
+function scoreHTML(s){ return `<div class="score ${s >= 75 ? 'hi' : ''}">${s}%</div>`; }
+function matchRow(r, m){
+  const chip = r.microchip_hash && m.r.microchip_hash ? ' · 🔖 stesso microchip' : '';
+  return `<div class="pair">${cardHTML(m.r, m.ok ? '<div class="score hi">✓ È lui</div>' : scoreHTML(m.s))}
+    <div class="mid"><hr>${fmtKm(m.d)}${chip}<hr><button class="mini" data-cmp="${r.id}|${m.r.id}">🔍 Confronta</button></div></div>`;
+}
+
+/* ---------- CONFRONTO E CONFERMA MATCH ---------- */
+function openCompare(aId, bId){
+  const a = Store.list.find(x => x.id === aId), b = Store.list.find(x => x.id === bId); if (!a || !b) return;
+  const [l, f] = a.tipo === 'perso' ? [a, b] : [b, a];
+  const s = score(l, f), d = km(l, f);
+  const same = (x, y) => x && y ? (String(x) === String(y) ? 'ok' : 'ko') : '';
+  const col = (l.colori || []).filter(c => (f.colori || []).includes(c));
+  const days = (new Date(f.quando) - new Date(l.quando)) / 864e5;
+  const sx = { M:'Maschio', F:'Femmina', '?':'?' };
+  const io = isMine(a) || isMine(b);
+  openSheet(`
+    <h2>🔍 Confronta</h2>
+    <div class="cmp"><div>${thumb(l, 'hero')}<span class="tag perso">CERCA</span></div><div>${thumb(f, 'hero')}<span class="tag trovato">${f.al_sicuro ? 'TROVATO' : 'AVVISTATO'}</span></div></div>
+    <table class="cmp-t">
+      <tr><td>Somiglianza</td><td colspan="2"><b>${s}%</b> · ${fmtKm(d)} di distanza · ${days >= 0 ? Math.round(days) + ' gg dopo' : 'stesso giorno'}</td></tr>
+      ${l.microchip_hash && f.microchip_hash ? `<tr><td>Microchip</td><td colspan="2" class="${l.microchip_hash === f.microchip_hash ? 'ok' : 'ko'}">${l.microchip_hash === f.microchip_hash ? 'Coincide ✓' : 'Diverso ✗'}</td></tr>` : ''}
+      <tr><td>Razza</td><td>${esc(l.razza || '—')}</td><td>${esc(f.razza || '—')}</td></tr>
+      <tr><td>Colori</td><td>${esc((l.colori || []).join(', ') || '—')}</td><td>${esc((f.colori || []).join(', ') || '—')}${col.length ? ` <span class="ok">(${col.length} in comune)</span>` : ''}</td></tr>
+      <tr><td>Taglia</td><td>${esc(l.taglia || '—')}</td><td class="${same(l.taglia, f.taglia)}">${esc(f.taglia || '—')}</td></tr>
+      <tr><td>Sesso</td><td>${sx[l.sesso] || '?'}</td><td class="${l.sesso !== '?' && f.sesso !== '?' ? same(l.sesso, f.sesso) : ''}">${sx[f.sesso] || '?'}</td></tr>
+      <tr><td>Collare</td><td>${l.collare ? 'Sì' : 'No'}</td><td class="${same(l.collare, f.collare)}">${f.collare ? 'Sì' : 'No'}</td></tr>
+      <tr><td>Note</td><td>${esc(l.descrizione || '—')}</td><td>${esc(f.descrizione || '—')}</td></tr>
+    </table>
+    ${io ? `<p style="font-weight:900;text-align:center;margin:16px 0 0">È lo stesso animale?</p>
+      <div class="yesno"><button style="background:#fdecec;color:var(--lost)" data-esito="no" data-pair="${l.id}|${f.id}">❌ Non è lui</button>
+      <button style="background:var(--found);color:#fff" data-esito="si" data-pair="${l.id}|${f.id}">✅ Sì, è lui!</button></div>
+      <p class="muted" style="text-align:center">Se confermi si apre la chat con l'altra persona.</p>`
+    : `<button class="btn-chat" data-chat="${f.id}">💬 Avvisa chi l'ha trovato</button><button class="ghost" data-chat="${l.id}">💬 Avvisa il proprietario</button>`}
+  `);
+}
+async function confirmMatch(lId, fId, esito){
+  await Safety.setEsito(lId, fId, esito);
+  render();
+  if (esito === 'no'){ toast('Ok, non te lo proporremo più'); closeSheet(); return; }
+  const l = Store.list.find(x => x.id === lId), f = Store.list.find(x => x.id === fId);
+  const mio = isMine(l) ? l : f, altro = mio === l ? f : l;
+  if (isMine(altro)){ toast('Sono entrambe tue segnalazioni'); return; }
+  const conv = await Chat.getOrCreate(altro);
+  if (!(Chat.msgs[conv.id] || []).length)
+    await Chat.send(conv, mio.tipo === 'perso'
+      ? `Ciao! Credo che l'animale che hai segnalato sia il mio${mio.nome ? ', si chiama ' + mio.nome : ''}. Possiamo sentirci?`
+      : `Ciao! Credo di aver trovato il tuo ${altro.specie}. Possiamo sentirci?`);
+  openChat(conv);
+}
+
+function showDetail(id, intro = ''){
+  const r = Store.list.find(x => x.id === id); if (!r) return;
+  const ms = matchesFor(r);
+  highlight = new Set([r.id, ...ms.map(m => m.r.id)]); render();
+  map.panTo([r.lat, r.lng]);
+  const dist = myPos ? ` · a ${fmtKm(km(myPos, r))} da te` : '';
+  const sesso = { M:'Maschio', F:'Femmina' }[r.sesso] || 'Non so';
+  openSheet(`
+    ${intro}
+    ${thumb(r, 'hero')}
+    <span class="tag ${r.tipo}">${r.tipo === 'perso' ? 'CERCA' : (r.al_sicuro ? 'TROVATO · al sicuro' : 'AVVISTATO')}</span>
+    <h2>${esc(titolo(r))}</h2>
+    <div class="muted">${r.tipo === 'perso' ? 'Perso' : 'Visto'} ${ago(r.quando)}${dist}</div>
+    ${r.approssimata ? `<div class="muted" style="margin-top:4px">🔒 Posizione approssimata (zona di ~${RAGGIO_APPROX} m). Il punto esatto si concorda in chat.</div>` : ''}
+    ${r.microchip_hash ? `<div style="margin-top:8px"><span class="chip-ok">✓ Microchip registrato</span></div>` : ''}
+    <dl class="kv">
+      ${r.razza ? `<dt>Razza</dt><dd>${esc(r.razza)}</dd>` : ''}
+      ${(r.colori || []).length ? `<dt>Colori</dt><dd>${esc(r.colori.join(', '))}</dd>` : ''}
+      ${r.taglia ? `<dt>Taglia</dt><dd>${esc(r.taglia)}</dd>` : ''}
+      <dt>Sesso</dt><dd>${sesso}</dd>
+      ${r.collare != null ? `<dt>Collare</dt><dd>${r.collare ? 'Sì' : 'No'}</dd>` : ''}
+    </dl>
+    ${r.descrizione ? `<p>${esc(r.descrizione)}</p>` : ''}
+    ${isMine(r)
+      ? `<button class="btn-chat" data-inbox="${r.id}">💬 Messaggi ricevuti${(n => n ? ` (${n} nuovi)` : '')(Chat.unreadFor(r.id))}</button>`
+      : `<button class="btn-chat" data-chat="${r.id}">💬 ${r.tipo === 'perso' ? 'L\'ho visto! Scrivi al proprietario' : 'È il mio? Scrivi a chi l\'ha segnalato'}</button>`}
+    ${r.contatto ? `<div class="contact"><div><div class="muted">Telefono</div><b>${esc(r.contatto)}</b></div>
+      ${/^[+\d\s]+$/.test(r.contatto) ? `<a href="tel:${esc(r.contatto.replace(/\s/g, ''))}">📞 Chiama</a>` : ''}</div>` : ''}
+    <h3>🔗 Possibili corrispondenze (${ms.length})</h3>
+    ${ms.length ? ms.map(m => matchRow(r, m)).join('') : `<div class="empty">Nessuna corrispondenza per ora.<br>Ti avviseremo appena arriva una segnalazione compatibile.</div>`}
+    <button class="ghost" data-flyer="${r.id}">🖨️ Volantino con QR · condividi</button>
+    ${isMine(r) ? `<button class="ghost" id="btnResolve">✅ ${r.tipo === 'perso' ? 'L\'ho ritrovato!' : 'Riconsegnato / chiudi'}</button>` : ''}
+    <a class="ghost" style="display:block;text-align:center;text-decoration:none;color:var(--ink)" href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}" target="_blank" rel="noopener">🧭 Portami ${r.approssimata ? 'nella zona' : 'qui'}</a>
+    ${isMine(r) ? '' : `<button class="ghost" data-abuse="${r.id}" style="color:var(--lost)">⚠️ Segnala contenuto falso o offensivo</button>`}
+  `);
+  const rb = $('#btnResolve');
+  if (rb) rb.onclick = async () => {
+    try { await Store.resolve(r.id); closeSheet(); render(); toast('🎉 Che bella notizia! Segnalazione chiusa.'); }
+    catch(e){ toast('Errore: ' + e.message); }
+  };
+}
+$('#sheetBody').addEventListener('click', async e => {
+  const t = e.target;
+  const cmp = t.closest('[data-cmp]'), es = t.closest('[data-esito]'), fl = t.closest('[data-flyer]'), ab = t.closest('[data-abuse]');
+  try {
+    if (cmp){ e.stopPropagation(); const [a, b] = cmp.dataset.cmp.split('|'); return openCompare(a, b); }
+    if (es){ es.disabled = true; const [a, b] = es.dataset.pair.split('|'); return await confirmMatch(a, b, es.dataset.esito); }
+    if (fl) return openFlyer(fl.dataset.flyer);
+    if (ab) return openAbuse('segnalazione', ab.dataset.abuse);
+  } catch(err){ toast('Errore: ' + err.message); }
+  const c = t.closest('[data-open]'); if (!c) return;
+  const r = Store.list.find(x => x.id === c.dataset.open);
+  if (r){ map.flyTo([r.lat, r.lng], 15, { duration:.6 }); showDetail(r.id); }
+});
+
+/* ---------- MATCH VIEW ---------- */
+$('#btnMatch').onclick = () => {
+  const my = myReports();
+  let html = `<h2>🔗 Match</h2><p class="muted">Abbiniamo chi cerca e chi ha trovato in base a specie, distanza, data, colori, taglia e sesso.</p>`;
+  if (my.length){
+    html += `<h3>Le tue segnalazioni</h3>`;
+    for (const r of my){
+      const ms = matchesFor(r);
+      html += `<div class="pair">${cardHTML(r, `<div class="score">${ms.length}</div>`)}</div>`;
+    }
+  }
+  const pairs = allPairs();
+  html += `<h3>Tutti i possibili match in zona (${pairs.length})</h3>`;
+  html += pairs.length ? pairs.map(p => `<div class="pair">${cardHTML(p.l)}<div class="mid"><hr>${p.s}% · ${fmtKm(p.d)}<hr><button class="mini" data-cmp="${p.l.id}|${p.f.id}">🔍 Confronta</button></div>${cardHTML(p.f)}</div>`).join('')
+    : `<div class="empty">Nessun match al momento.</div>`;
+  openSheet(html);
+};
+
+/* ---------- NUOVA SEGNALAZIONE ---------- */
+let draft = null;
+$('#btnAdd').onclick = () => openSheet(`
+  <h2>Cosa vuoi segnalare?</h2>
+  <div class="choice">
+    <button class="c-lost" data-t="perso"><i>😢</i>Ho perso il mio animale</button>
+    <button class="c-found" data-t="trovato"><i>👀</i>Ho visto o trovato un animale</button>
+  </div>
+  <p class="muted" style="text-align:center">Le segnalazioni restano visibili ${CONFIG.GIORNI_VISIBILI} giorni.</p>`);
+$('#sheetBody').addEventListener('click', e => {
+  const b = e.target.closest('[data-t]'); if (!b) return;
+  draft = { tipo:b.dataset.t };
+  closeSheet(); startPick();
+});
+
+function startPick(){
+  document.body.classList.add('picking');
+  $('#pickText').textContent = draft.tipo === 'perso' ? 'Sposta la mappa dove l\'hai visto l\'ultima volta' : 'Sposta la mappa dove l\'hai visto';
+  if (myPos) map.setView([myPos.lat, myPos.lng], 17);
+}
+$('#pickGps').onclick = () => locate(true);
+$('#pickCancel').onclick = () => { document.body.classList.remove('picking'); draft = null; };
+$('#pickOk').onclick = () => {
+  const c = map.getCenter(); draft.lat = c.lat; draft.lng = c.lng;
+  document.body.classList.remove('picking'); openForm();
+};
+
+function nowLocal(){ const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); }
+let photoBlob = null;
+function openForm(){
+  photoBlob = null;
+  const lost = draft.tipo === 'perso';
+  openSheet(`
+    <span class="tag ${draft.tipo}">${lost ? 'CERCO' : 'HO VISTO / TROVATO'}</span>
+    <h2>${lost ? 'Descrivi il tuo animale' : 'Descrivi l\'animale'}</h2>
+    <form id="frm">
+      <label class="f">Animale</label>
+      <div class="chips" data-single="specie"><button type="button" class="chip on" data-v="cane">🐶 Cane</button><button type="button" class="chip" data-v="gatto">🐱 Gatto</button></div>
+      <label class="f">Foto ${lost ? '(molto importante)' : '(se riesci)'}</label>
+      <div class="photo-in"><div class="ph" id="ph">📷</div><label>Scegli foto<input type="file" accept="image/*" id="file" hidden></label></div>
+      ${lost ? `<label class="f">Nome</label><input type="text" name="nome" placeholder="Es. Rocky">` : ''}
+      <label class="f">Razza ${lost ? '' : '(se la riconosci)'}</label><input type="text" name="razza" placeholder="Es. Meticcio, Labrador, Europeo…">
+      <label class="f">Colori</label>
+      <div class="chips" data-multi="colori">${COLORI.map(c => `<button type="button" class="chip" data-v="${c}">${c}</button>`).join('')}</div>
+      <label class="f">Taglia</label>
+      <div class="chips" data-single="taglia">${TAGLIE.map(t => `<button type="button" class="chip ${t === 'media' ? 'on' : ''}" data-v="${t}">${t}</button>`).join('')}</div>
+      <label class="f">Sesso</label>
+      <div class="chips" data-single="sesso"><button type="button" class="chip" data-v="M">Maschio</button><button type="button" class="chip" data-v="F">Femmina</button><button type="button" class="chip on" data-v="?">Non so</button></div>
+      <label class="switch"><input type="checkbox" name="collare"> Ha il collare</label>
+      ${lost ? '' : `<label class="switch"><input type="checkbox" name="al_sicuro" id="alSicuro"> È con me / al sicuro</label>`}
+      <label class="switch"><input type="checkbox" name="approssimata" id="approxChk"> 🔒 Mostra solo la zona (~${RAGGIO_APPROX} m), non il punto esatto</label>
+      <p class="muted" id="approxHint" style="margin:4px 0 0 32px;display:none">Consigliato: stai segnalando dove si trova casa tua o il posto in cui tieni l'animale.</p>
+      <label class="f">Numero di microchip (facoltativo)</label>
+      <input type="text" name="microchip" inputmode="numeric" placeholder="15 cifre${lost ? '' : ' — un veterinario può leggerlo gratis'}">
+      <p class="muted" style="margin:6px 0 0">Non viene mai mostrato: lo usiamo solo per confrontarlo con le altre segnalazioni.</p>
+      <label class="f">${lost ? 'Quando l\'hai perso' : 'Quando l\'hai visto'}</label><input type="datetime-local" name="quando" value="${nowLocal()}">
+      <label class="f">Dettagli</label><textarea name="descrizione" placeholder="${lost ? 'Segni particolari, carattere, microchip…' : 'Direzione in cui andava, stato di salute, comportamento…'}"></textarea>
+      <label class="f">Telefono (facoltativo)</label><input type="tel" name="contatto" placeholder="Lascia vuoto per usare solo la chat">
+      <p class="muted" style="margin:6px 0 0">💬 Ti potranno sempre scrivere in chat dentro l'app. Il telefono, se lo metti, sarà visibile a tutti.</p>
+      <button class="submit ${draft.tipo}" type="submit">Pubblica segnalazione</button>
+      <button class="ghost" type="button" id="reposition">📍 Cambia posizione</button>
+    </form>`);
+  const frm = $('#frm');
+  frm.querySelectorAll('[data-single]').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return; [...g.children].forEach(x => x.classList.toggle('on', x === b));
+  }));
+  frm.querySelectorAll('[data-multi]').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (b) b.classList.toggle('on');
+  }));
+  $('#file').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    photoBlob = await resize(f, 900);
+    $('#ph').style.backgroundImage = `url(${URL.createObjectURL(photoBlob)})`; $('#ph').textContent = '';
+  };
+  $('#reposition').onclick = () => { closeSheet(); startPick(); };
+  const sic = $('#alSicuro');
+  if (sic) sic.onchange = () => { if (sic.checked) $('#approxChk').checked = true; $('#approxHint').style.display = sic.checked ? 'block' : 'none'; };
+  frm.onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(frm);
+    const one = k => frm.querySelector(`[data-single=${k}] .on`)?.dataset.v || null;
+    const btn = frm.querySelector('.submit'); btn.disabled = true; btn.textContent = 'Pubblico…';
+    try {
+      const rec = {
+        tipo: draft.tipo, specie: one('specie'), taglia: one('taglia'), sesso: one('sesso'),
+        nome: (fd.get('nome') || '').trim() || null, razza: (fd.get('razza') || '').trim() || null,
+        colori: [...frm.querySelectorAll('[data-multi=colori] .on')].map(x => x.dataset.v),
+        collare: !!fd.get('collare'), al_sicuro: !!fd.get('al_sicuro'),
+        descrizione: (fd.get('descrizione') || '').trim() || null, contatto: (fd.get('contatto') || '').trim() || null,
+        quando: new Date(fd.get('quando') || Date.now()).toISOString(), lat: draft.lat, lng: draft.lng,
+        approssimata: !!fd.get('approssimata'), microchip_hash: await hashChip(fd.get('microchip'))
+      };
+      if (rec.approssimata) Object.assign(rec, approx(rec.lat, rec.lng));
+      rec.foto_url = await Store.uploadPhoto(photoBlob);
+      const saved = await Store.add(rec);
+      draft = null; render();
+      if (!sb) setTimeout(() => Chat.demoIncoming(saved), 6000);
+      const n = matchesFor(saved).length;
+      showDetail(saved.id, n ? `<div class="alert">🎯 Abbiamo trovato ${n} ${n === 1 ? 'possibile corrispondenza' : 'possibili corrispondenze'}! Guarda in fondo.</div>` : `<div class="alert" style="background:#e6f6ee;color:#1e6b45">✅ Segnalazione pubblicata.</div>`);
+    } catch(err){ toast('Errore: ' + err.message); btn.disabled = false; btn.textContent = 'Pubblica segnalazione'; }
+  };
+}
+function resize(file, max){
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => b ? res(b) : rej(new Error('foto non valida')), 'image/jpeg', 0.78);
+    };
+    img.onerror = rej; img.src = URL.createObjectURL(file);
+  });
+}
+
+/* =========================================================
+   CHAT INTERNA
+   Una conversazione = (segnalazione, persona che scrive al proprietario).
+   ========================================================= */
+const Chat = {
+  convs: [], msgs: {}, openId: null,
+  _save(){ if (!sb) ls.set('fiuto_chat', { convs:this.convs, msgs:this.msgs }); },
+  async load(){
+    if (!sb){ const d = ls.get('fiuto_chat', { convs:[], msgs:{} }); this.convs = d.convs; this.msgs = d.msgs; return; }
+    const { data, error } = await sb.from('conversazioni').select('*').order('last_at', { ascending:false });
+    if (error){ console.warn(error); return; }
+    this.convs = data; this.msgs = {};
+    if (data.length){
+      const { data:m } = await sb.from('messaggi').select('*').in('conversazione_id', data.map(c => c.id)).order('created_at');
+      (m || []).forEach(x => (this.msgs[x.conversazione_id] ||= []).push(x));
+    }
+  },
+  otherOf(c){ return c.owner_id === ME ? c.altro_id : c.owner_id; },
+  visible(){ return this.convs.filter(c => !Safety.blocked.has(this.otherOf(c))); },
+  unread(id){ return (this.msgs[id] || []).filter(m => m.autore_id !== ME && !m.letto).length; },
+  unreadFor(segId){ return this.visible().filter(c => c.segnalazione_id === segId).reduce((t, c) => t + this.unread(c.id), 0); },
+  unreadTotal(){ return this.visible().reduce((t, c) => t + this.unread(c.id), 0); },
+  last(id){ const a = this.msgs[id] || []; return a[a.length - 1]; },
+  sorted(segId){
+    return this.visible().filter(c => !segId || c.segnalazione_id === segId)
+      .sort((a, b) => new Date(b.last_at) - new Date(a.last_at));
+  },
+  async getOrCreate(seg){
+    let c = this.convs.find(c => c.segnalazione_id === seg.id && c.altro_id === ME);
+    if (c) return c;
+    const rec = { segnalazione_id:seg.id, owner_id:seg.owner_id, altro_id:ME,
+      seg_info:{ titolo:titolo(seg), specie:seg.specie, tipo:seg.tipo, foto_url:seg.foto_url } };
+    if (sb){
+      let { data, error } = await sb.from('conversazioni').insert(rec).select('*').single();
+      if (error && error.code === '23505')
+        ({ data, error } = await sb.from('conversazioni').select('*').eq('segnalazione_id', seg.id).eq('altro_id', ME).single());
+      if (error) throw error;
+      c = data;
+    } else {
+      const now = new Date().toISOString();
+      c = { id:uid(), created_at:now, last_at:now, ...rec };
+    }
+    this.convs.unshift(c); this._save(); return c;
+  },
+  _push(m){
+    const a = (this.msgs[m.conversazione_id] ||= []);
+    if (a.find(x => x.id === m.id)) return false;
+    a.push(m);
+    const c = this.convs.find(c => c.id === m.conversazione_id); if (c) c.last_at = m.created_at;
+    return true;
+  },
+  async send(conv, testo){
+    if (sb){
+      const { data, error } = await sb.from('messaggi').insert({ conversazione_id:conv.id, testo }).select('*').single();
+      if (error) throw error;
+      this._push(data);
+    } else {
+      this._push({ id:uid(), conversazione_id:conv.id, autore_id:ME, testo, letto:false, created_at:new Date().toISOString() });
+      this._save(); this._demoReply(conv);
+    }
+  },
+  async markRead(conv){
+    const da = (this.msgs[conv.id] || []).filter(m => m.autore_id !== ME && !m.letto);
+    if (!da.length) return;
+    da.forEach(m => m.letto = true); this._save();
+    if (sb) await sb.from('messaggi').update({ letto:true }).in('id', da.map(m => m.id));
+  },
+  /* --- solo demo: simula l'altra persona --- */
+  _fake(conv, autore, testo){
+    const m = { id:uid(), conversazione_id:conv.id, autore_id:autore, testo, letto:false, created_at:new Date().toISOString() };
+    this._push(m); this._save(); this.onIncoming(m);
+  },
+  _demoReply(conv){
+    const n = (this.msgs[conv.id] || []).filter(m => m.autore_id === ME).length;
+    if (n > 3) return;
+    const other = conv.owner_id === ME ? conv.altro_id : conv.owner_id;
+    const r = conv.owner_id === ME
+      ? ['Figurati! Spero davvero sia lui.', 'Era vicino al parcheggio, verso le 8.', 'Ok, ti scrivo se lo rivedo 👍', 'In bocca al lupo!']
+      : ['Ciao! Grazie mille per avermi scritto 🙏', 'Mi dici dove e a che ora esattamente?', 'Perfetto, ci sentiamo qui.', 'Grazie ancora ❤️'];
+    setTimeout(() => this._fake(conv, other, r[n - 1] || r[r.length - 1]), 1800);
+  },
+  demoIncoming(seg){
+    if (!Store.list.find(x => x.id === seg.id)) return;
+    const visitor = 'demo-visitatore';
+    const now = new Date().toISOString();
+    const c = { id:uid(), created_at:now, last_at:now, segnalazione_id:seg.id, owner_id:ME, altro_id:visitor,
+      seg_info:{ titolo:titolo(seg), specie:seg.specie, tipo:seg.tipo, foto_url:seg.foto_url } };
+    this.convs.unshift(c); this._save();
+    const a = seg.specie === 'gatto' ? 'gatto' : 'cane';
+    this._fake(c, visitor, seg.tipo === 'perso'
+      ? `Ciao, credo di aver visto il tuo ${a} poco fa qui vicino! Ha ${seg.collare ? 'un collare' : 'il collare'}?`
+      : `Ciao! Credo sia il mio ${a} 😭 Dove si trova adesso?`);
+  },
+  onIncoming(){},
+  subscribe(){
+    if (!sb) return;
+    sb.channel('chat')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'conversazioni' }, p => {
+        if (!this.convs.find(c => c.id === p.new.id)) this.convs.unshift(p.new);
+      })
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'messaggi' }, async p => {
+        if (!this.convs.find(c => c.id === p.new.conversazione_id)) await this.load();
+        else if (!this._push(p.new)) return;
+        this.onIncoming(p.new);
+      })
+      .subscribe();
+  }
+};
+
+function updateChatBadge(){ $('#badgeChat').textContent = Chat.unreadTotal() || ''; }
+const segThumb = (c, cls) => { const i = c.seg_info || {}; const e = i.specie === 'gatto' ? '🐱' : '🐶';
+  return i.foto_url ? `<div class="${cls}" style="background-image:url('${esc(i.foto_url)}')"></div>` : `<div class="${cls}">${e}</div>`; };
+const fmtTime = d => new Date(d).toLocaleString('it-IT', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+
+function openInbox(segId = null){
+  const list = Chat.sorted(segId);
+  const seg = segId && Store.list.find(x => x.id === segId);
+  openSheet(`
+    <h2>💬 ${seg ? 'Messaggi per questa segnalazione' : 'I tuoi messaggi'}</h2>
+    ${list.length ? list.map(c => {
+      const l = Chat.last(c.id), u = Chat.unread(c.id);
+      const chi = c.owner_id === ME ? 'Ti ha scritto qualcuno' : 'Hai scritto a chi ha segnalato';
+      return `<button class="card" data-conv="${c.id}">${segThumb(c, 'th')}
+        <div class="tx"><b>${esc(c.seg_info?.titolo || 'Segnalazione')}</b>
+        <span>${esc(chi)}</span><br><span>${l ? esc((l.autore_id === ME ? 'Tu: ' : '') + l.testo).slice(0, 60) : 'Nessun messaggio'}</span></div>
+        ${u ? `<span class="unread">${u}</span>` : ''}</button>`;
+    }).join('') : `<div class="empty">Nessuna conversazione ancora.<br>Apri una segnalazione sulla mappa e tocca "Scrivi".</div>`}
+    ${seg ? `<button class="ghost" data-open="${seg.id}">← Torna alla segnalazione</button>` : ''}`);
+}
+
+function openChat(conv){
+  const amOwner = conv.owner_id === ME, info = conv.seg_info || {};
+  const quick = amOwner ? ['Grazie mille! 🙏', 'Dove esattamente?', 'A che ora?', 'Era da solo?']
+    : info.tipo === 'perso' ? ['L\'ho visto poco fa!', 'Credo di averlo trovato', 'Che collare ha?', 'È socievole?']
+    : ['Credo sia il mio!', 'Dove si trova adesso?', 'Posso venire a vederlo?', 'Ha un microchip?'];
+  openSheet(`
+    <div class="chat-head">
+      <button class="back" data-back="1">‹</button>${segThumb(conv, 'th')}
+      <div style="flex:1;min-width:0"><b>${esc(info.titolo || 'Segnalazione')}</b>
+      <span class="muted">${amOwner ? 'Persona che ti ha risposto' : (info.tipo === 'perso' ? 'Proprietario' : 'Chi l\'ha segnalato')}</span></div>
+      ${Store.list.find(x => x.id === conv.segnalazione_id) ? `<button class="back" data-open="${conv.segnalazione_id}" title="Vedi sulla mappa">📍</button>` : ''}
+      <div class="menu"><button class="back" id="chatMenuBtn">⋯</button>
+        <div class="dropdown" id="chatMenu">
+          <button id="mBlock">🚫 Blocca questa persona</button>
+          <button id="mReport" style="color:var(--lost)">⚠️ Segnala abuso o truffa</button>
+        </div></div>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    ${conv._bloccata ? `<div class="blocked">Non puoi più scrivere in questa conversazione.</div>` : `
+    <div class="quick">${quick.map(q => `<button data-q="${esc(q)}">${esc(q)}</button>`).join('')}<button data-q="__pos">📍 Invia posizione</button></div>
+    <form class="composer" id="composer"><textarea id="txt" rows="1" placeholder="Scrivi un messaggio…" maxlength="2000"></textarea><button type="submit">➤</button></form>`}
+  `, true);
+  Chat.openId = conv.id;
+  renderMsgs(conv);
+  const other = Chat.otherOf(conv);
+  $('#chatMenuBtn').onclick = () => $('#chatMenu').classList.toggle('open');
+  $('#mBlock').onclick = async () => {
+    try { await Safety.block(other); toast('Persona bloccata: non potrà più scriverti'); openInbox(); updateChatBadge(); }
+    catch(e){ toast('Errore: ' + e.message); }
+  };
+  $('#mReport').onclick = () => openAbuse('utente', other, conv);
+  if (conv._bloccata) return;
+  const txt = $('#txt');
+  const send = async testo => {
+    testo = testo.trim(); if (!testo) return;
+    txt.value = '';
+    try { await Chat.send(conv, testo); renderMsgs(conv); }
+    catch(e){
+      if (/row-level security|bloccat|42501/i.test(e.message + (e.code || ''))){ conv._bloccata = true; openChat(conv); return; }
+      toast('Messaggio non inviato: ' + e.message); txt.value = testo;
+    }
+  };
+  $('#composer').onsubmit = e => { e.preventDefault(); send(txt.value); };
+  txt.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(txt.value); } };
+  txt.oninput = () => { txt.style.height = 'auto'; txt.style.height = Math.min(120, txt.scrollHeight) + 'px'; };
+  $('.quick').onclick = async e => {
+    const b = e.target.closest('[data-q]'); if (!b) return;
+    if (b.dataset.q !== '__pos') return send(b.dataset.q);
+    const p = await locate(false);
+    if (p) send(`📍 Sono qui: https://maps.google.com/?q=${p.lat.toFixed(5)},${p.lng.toFixed(5)}`);
+  };
+}
+function linkify(s){ return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">apri mappa</a>'); }
+function renderMsgs(conv){
+  const box = $('#msgs'); if (!box) return;
+  const list = Chat.msgs[conv.id] || [];
+  box.innerHTML = `<div class="msg sys">🔒 Non inviare mai soldi, ricariche o codici per riavere un animale: chi lo ha davvero non chiede pagamenti in anticipo. Incontratevi in un luogo pubblico o da un veterinario.</div>` +
+    list.map(m => {
+      const them = m.autore_id !== ME;
+      return `<div class="msg ${them ? 'them' : 'me'}">${linkify(m.testo)}<time>${fmtTime(m.created_at)}${!them && m.letto ? ' ✓✓' : ''}</time></div>` +
+        (them && SCAM_RE.test(m.testo) ? `<div class="warn">⚠️ Attenzione: questo messaggio parla di soldi o pagamenti. È lo schema tipico delle truffe sugli animali smarriti. Non pagare nulla in anticipo.</div>` : '');
+    }).join('');
+  box.scrollTop = box.scrollHeight;
+  Chat.markRead(conv).then(updateChatBadge);
+  updateChatBadge();
+}
+Chat.onIncoming = m => {
+  if (m.autore_id === ME || Safety.blocked.has(m.autore_id)) return;
+  const conv = Chat.convs.find(c => c.id === m.conversazione_id);
+  if (Chat.openId === m.conversazione_id && conv) renderMsgs(conv);
+  else toast('💬 Nuovo messaggio: ' + m.testo.slice(0, 40));
+  updateChatBadge();
+};
+
+$('#btnInbox').onclick = () => openInbox();
+$('#sheetBody').addEventListener('click', async e => {
+  const t = e.target;
+  const chatBtn = t.closest('[data-chat]'), inboxBtn = t.closest('[data-inbox]'), convBtn = t.closest('[data-conv]'), back = t.closest('[data-back]');
+  try {
+    if (chatBtn){
+      const seg = Store.list.find(x => x.id === chatBtn.dataset.chat); if (!seg) return;
+      chatBtn.disabled = true; openChat(await Chat.getOrCreate(seg));
+    } else if (inboxBtn) openInbox(inboxBtn.dataset.inbox);
+    else if (convBtn){ const c = Chat.convs.find(x => x.id === convBtn.dataset.conv); if (c) openChat(c); }
+    else if (back){ const c = Chat.convs.find(x => x.id === Chat.openId); openInbox(c && c.owner_id === ME ? c.segnalazione_id : null); }
+  } catch(err){ toast('Errore: ' + err.message); }
+});
+
+/* =========================================================
+   SEGNALA ABUSO
+   ========================================================= */
+function openAbuse(tipo, id, conv = null){
+  const motivi = tipo === 'utente'
+    ? ['Chiede soldi / truffa', 'Messaggi offensivi', 'Spam', 'Si spaccia per il proprietario', 'Altro']
+    : ['Segnalazione falsa', 'Foto o testo offensivi', 'Spam / pubblicità', 'Animale in vendita', 'Altro'];
+  openSheet(`
+    <h2>⚠️ Segnala ${tipo === 'utente' ? 'questa persona' : 'questa segnalazione'}</h2>
+    <p class="muted">La segnalazione è anonima. Dopo 3 segnalazioni da persone diverse il contenuto viene nascosto in automatico.</p>
+    <div class="chips" id="motivi">${motivi.map((m, i) => `<button type="button" class="chip ${i ? '' : 'on'}" data-v="${esc(m)}">${esc(m)}</button>`).join('')}</div>
+    <label class="f">Dettagli (facoltativo)</label><textarea id="abuseTxt" maxlength="500"></textarea>
+    ${tipo === 'utente' ? `<label class="switch"><input type="checkbox" id="alsoBlock" checked> Blocca anche questa persona</label>` : ''}
+    <button class="submit perso" id="abuseSend">Invia segnalazione</button>
+    <button class="ghost" id="abuseBack">Annulla</button>`);
+  $('#motivi').onclick = e => { const b = e.target.closest('.chip'); if (b) [...$('#motivi').children].forEach(x => x.classList.toggle('on', x === b)); };
+  const back = () => conv ? openChat(conv) : (Store.list.find(x => x.id === id) ? showDetail(id) : closeSheet());
+  $('#abuseBack').onclick = back;
+  $('#abuseSend').onclick = async () => {
+    const motivo = $('#motivi .on').dataset.v + ($('#abuseTxt').value.trim() ? ': ' + $('#abuseTxt').value.trim() : '');
+    try {
+      await Safety.report(tipo, id, motivo);
+      if ($('#alsoBlock')?.checked){ await Safety.block(id); updateChatBadge(); toast('Grazie, segnalazione inviata e persona bloccata'); return openInbox(); }
+      toast('Grazie, segnalazione inviata'); back();
+    } catch(e){ toast('Errore: ' + e.message); }
+  };
+}
+
+/* =========================================================
+   VOLANTINO CON QR CODE
+   ========================================================= */
+const shareUrl = r => location.origin + location.pathname + '#s-' + r.id;
+async function zona(r){
+  try {
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 4000);
+    const z = r.approssimata ? 14 : 17;
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${r.lat}&lon=${r.lng}&zoom=${z}&accept-language=it`, { signal:ctl.signal });
+    const a = (await res.json()).address || {};
+    const citta = a.city || a.town || a.village || '';
+    const luogo = r.approssimata ? (a.suburb || a.quarter || a.neighbourhood || '') : (a.road || a.suburb || '');
+    return [luogo, citta].filter(Boolean).join(', ');
+  } catch(e){ return ''; }
+}
+function loadImg(src){
+  return new Promise(res => { if (!src) return res(null); const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+}
+function wrap(ctx, text, x, y, maxW, lh, maxLines){
+  const words = String(text).split(/\s+/); let line = '', n = 0;
+  for (let i = 0; i < words.length; i++){
+    const t = line ? line + ' ' + words[i] : words[i];
+    if (ctx.measureText(t).width > maxW && line){
+      if (++n === maxLines){ ctx.fillText(line + '…', x, y); return y + lh; }
+      ctx.fillText(line, x, y); y += lh; line = words[i];
+    } else line = t;
+  }
+  if (line) ctx.fillText(line, x, y);
+  return y + lh;
+}
+async function buildFlyer(r){
+  const W = 1240, H = 1754, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'), F = 'Nunito, system-ui, sans-serif';
+  const col = r.tipo === 'perso' ? '#e5484d' : (r.al_sicuro ? '#2f9e66' : '#e8a33d');
+  const head = r.tipo === 'perso' ? (r.specie === 'gatto' ? 'GATTO SMARRITO' : 'CANE SMARRITO') : (r.al_sicuro ? 'TROVATO' : 'AVVISTATO');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+  x.fillStyle = col; x.fillRect(0, 0, W, 250);
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.font = `900 ${head.length > 10 ? 120 : 150}px ${F}`; x.fillText(head, W / 2, 175);
+  // foto
+  const img = await loadImg(r.foto_url);
+  const px = 80, py = 300, pw = W - 160, ph = 760;
+  x.save(); x.beginPath(); x.roundRect ? x.roundRect(px, py, pw, ph, 36) : x.rect(px, py, pw, ph); x.clip();
+  if (img){
+    const k = Math.max(pw / img.width, ph / img.height), w = img.width * k, h = img.height * k;
+    x.drawImage(img, px + (pw - w) / 2, py + (ph - h) / 2, w, h);
+  } else { x.fillStyle = '#f3f4f6'; x.fillRect(px, py, pw, ph); x.font = `400px ${F}`; x.fillText(emoji(r), W / 2, py + ph / 2 + 140); }
+  x.restore();
+  // testo
+  x.textAlign = 'left'; x.fillStyle = '#1f2a37';
+  let y = 1140;
+  x.font = `900 76px ${F}`; x.fillText(r.nome ? r.nome.toUpperCase() : (r.specie === 'gatto' ? 'Gatto' : 'Cane') + (r.razza ? ' · ' + r.razza : ''), px, y); y += 64;
+  x.font = `700 40px ${F}`; x.fillStyle = '#374151';
+  const det = [r.nome && r.razza, (r.colori || []).join(', '), r.taglia && 'taglia ' + r.taglia, { M:'maschio', F:'femmina' }[r.sesso], r.collare ? 'con collare' : null].filter(Boolean).join(' · ');
+  if (det) y = wrap(x, det, px, y, pw, 50, 2);
+  const z = await zona(r);
+  const quando = new Date(r.quando).toLocaleDateString('it-IT', { weekday:'long', day:'numeric', month:'long' });
+  x.font = `800 40px ${F}`; x.fillStyle = col;
+  y = wrap(x, `${r.tipo === 'perso' ? 'Visto l\'ultima volta' : 'Visto'} ${quando}${z ? ' — ' + z : ''}`, px, y + 6, pw, 50, 2);
+  if (r.descrizione){ x.font = `600 36px ${F}`; x.fillStyle = '#4b5563'; y = wrap(x, r.descrizione, px, y + 4, pw, 46, 3); }
+  // QR
+  const url = shareUrl(r), qs = 330, qy = H - qs - 90;
+  x.fillStyle = '#f9fafb'; x.fillRect(0, qy - 40, W, H - qy + 40);
+  if (window.qrcode){
+    const q = qrcode(0, 'M'); q.addData(url); q.make();
+    const n = q.getModuleCount(), cell = Math.floor(qs / n), off = (qs - cell * n) / 2;
+    const qz = cell * 3;   // zona di rispetto bianca attorno al QR, così si legge meglio
+    x.fillStyle = '#fff'; x.fillRect(px - qz, qy - qz, qs + qz * 2, qs + qz * 2);
+    x.fillStyle = '#000';
+    for (let rr = 0; rr < n; rr++) for (let cc = 0; cc < n; cc++) if (q.isDark(rr, cc)) x.fillRect(px + off + cc * cell, qy + off + rr * cell, cell, cell);
+  }
+  const tx = px + qs + 60, tw = W - tx - 80;
+  x.fillStyle = '#1f2a37'; x.font = `900 46px ${F}`;
+  let ty = wrap(x, r.tipo === 'perso' ? 'Lo hai visto? Scansiona e scrivimi' : 'È tuo? Scansiona e scrivimi', tx, qy + 50, tw, 56, 2);
+  x.font = `700 32px ${F}`; x.fillStyle = '#6b7280';
+  ty = wrap(x, 'Chat anonima nell\'app Fiuto, senza installare niente.', tx, ty + 4, tw, 42, 2);
+  if (r.contatto){ x.font = `900 58px ${F}`; x.fillStyle = col; x.fillText('📞 ' + r.contatto, tx, ty + 50); }
+  x.font = `800 26px ${F}`; x.fillStyle = '#9ca3af'; x.textAlign = 'center';
+  x.fillText('🐾 Fiuto · rete di quartiere per cani e gatti smarriti', W / 2, H - 30);
+  return c;
+}
+async function openFlyer(id){
+  const r = Store.list.find(x => x.id === id); if (!r) return;
+  openSheet(`<h2>🖨️ Volantino</h2><div class="empty">Preparo il volantino…</div>`);
+  await (document.fonts?.ready || Promise.resolve());
+  const c = await buildFlyer(r);
+  let data; try { data = c.toDataURL('image/png'); } catch(e){ toast('La foto non permette l\'esportazione'); return; }
+  const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+  const file = new File([blob], `fiuto-${r.specie}-${(r.nome || r.tipo).toLowerCase().replace(/\W+/g, '-')}.png`, { type:'image/png' });
+  const url = shareUrl(r);
+  const msg = `${r.tipo === 'perso' ? '🔴 ' : '🟢 '}${titolo(r)}! Aiutaci a condividere 🙏`;
+  openSheet(`
+    <h2>🖨️ Volantino</h2>
+    <img class="flyer-prev" src="${data}" alt="Volantino">
+    <div class="btn-grid">
+      <button id="fShare" style="background:var(--ink);color:#fff">📤 Condividi</button>
+      <a id="fWa" class="ghost" style="margin:0;display:flex;align-items:center;justify-content:center;text-decoration:none;color:#fff;background:#25d366" href="https://wa.me/?text=${encodeURIComponent(msg + ' ' + url)}" target="_blank" rel="noopener">WhatsApp</a>
+      <button id="fDown">⬇️ Scarica PNG</button>
+      <button id="fPrint">🖨️ Stampa / PDF</button>
+    </div>
+    <button class="ghost" id="fCopy">🔗 Copia link</button>
+    <button class="ghost" data-open="${r.id}">← Torna alla segnalazione</button>`);
+  $('#fShare').onclick = async () => {
+    try {
+      if (navigator.canShare && navigator.canShare({ files:[file] })) await navigator.share({ files:[file], title:titolo(r), text:msg + ' ' + url });
+      else if (navigator.share) await navigator.share({ title:titolo(r), text:msg, url });
+      else { await navigator.clipboard.writeText(msg + ' ' + url); toast('Link copiato'); }
+    } catch(e){ if (e.name !== 'AbortError') toast('Condivisione non disponibile'); }
+  };
+  $('#fDown').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); };
+  $('#fPrint').onclick = () => { $('#printArea').innerHTML = `<img src="${data}">`; setTimeout(() => window.print(), 100); };
+  $('#fCopy').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('Link copiato'); } catch(e){ toast(url); } };
+}
+
+/* =========================================================
+   NOTIFICHE PUSH (PWA)
+   ========================================================= */
+function b64ToU8(b){ const p = '='.repeat((4 - b.length % 4) % 4); const s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...s].map(ch => ch.charCodeAt(0))); }
+const Push = {
+  reg: null,
+  prefs: ls.get('fiuto_push', { on:false, raggio:5, specie:['cane','gatto'] }),
+  supported(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; },
+  async register(){ if ('serviceWorker' in navigator) try { this.reg = await navigator.serviceWorker.register('sw.js'); } catch(e){ console.warn('SW', e); } },
+  async enable(raggio, specie){
+    if (!sb) throw new Error('Disponibile solo in modalità live (Supabase)');
+    if (!CONFIG.VAPID_PUBLIC_KEY) throw new Error('Manca VAPID_PUBLIC_KEY in CONFIG');
+    if (!this.supported() || !this.reg) throw new Error(/iPhone|iPad/.test(navigator.userAgent) ? 'Su iPhone aggiungi prima Fiuto alla schermata Home' : 'Notifiche non supportate da questo browser');
+    if (await Notification.requestPermission() !== 'granted') throw new Error('Permesso notifiche negato');
+    const pos = myPos || await locate(false) || { lat:CONFIG.CENTRO[0], lng:CONFIG.CENTRO[1] };
+    const sub = await this.reg.pushManager.getSubscription() || await this.reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToU8(CONFIG.VAPID_PUBLIC_KEY) });
+    const j = sub.toJSON();
+    await sb.from('push_iscrizioni').delete().eq('endpoint', j.endpoint);
+    const { error } = await sb.from('push_iscrizioni').insert({ endpoint:j.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth, lat:pos.lat, lng:pos.lng, raggio_km:raggio, specie });
+    if (error) throw error;
+    this.prefs = { on:true, raggio, specie }; ls.set('fiuto_push', this.prefs);
+  },
+  async disable(){
+    const sub = this.reg && await this.reg.pushManager.getSubscription();
+    if (sub){ if (sb) await sb.from('push_iscrizioni').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
+    this.prefs.on = false; ls.set('fiuto_push', this.prefs);
+  }
+};
+
+/* =========================================================
+   IMPOSTAZIONI: notifiche + account
+   ========================================================= */
+async function openSettings(){
+  const user = sb ? (await sb.auth.getUser()).data.user : null;
+  const anon = !user || user.is_anonymous;
+  const p = Push.prefs;
+  let tg = null;
+  if (sb && user) { const { data } = await sb.from('telegram_utenti').select('raggio_km,specie,lat,attivo').eq('user_id', user.id).maybeSingle(); tg = data; }
+  openSheet(`
+    <h2>⚙️ Impostazioni</h2>
+    <h3>📨 Avvisi su Telegram</h3>
+    <p class="muted">Il modo più affidabile, anche su iPhone: ti arriva un messaggio con la foto quando c'è un possibile match, una segnalazione vicino a te o un messaggio in chat.</p>
+    ${!sb || !CONFIG.TELEGRAM_BOT ? `<p class="muted">Disponibile in modalità live, con il bot configurato.</p>`
+      : tg ? `<div class="set-row"><div><b>✅ Collegato a Telegram</b><span class="muted">${tg.lat == null ? 'Manda la tua posizione al bot per ricevere gli avvisi in zona' : `Zona impostata · raggio ${tg.raggio_km} km · ${tg.specie.map(s => s === 'cane' ? '🐶' : '🐱').join(' ')}`}${tg.attivo ? '' : ' · ⏸️ in pausa'}</span></div>
+          <button class="mini" id="tgOff">Scollega</button></div>
+          <a class="ghost" style="display:block;text-align:center;text-decoration:none;color:var(--ink)" href="https://t.me/${esc(CONFIG.TELEGRAM_BOT)}" target="_blank" rel="noopener">⚙️ Cambia zona e raggio nel bot</a>`
+      : `<button class="submit" id="tgOn" style="background:#229ED9">📨 Ricevi avvisi su Telegram</button>`}
+    ${CONFIG.TELEGRAM_CANALE ? `<a class="ghost" style="display:block;text-align:center;text-decoration:none;color:var(--ink)" href="https://t.me/${esc(CONFIG.TELEGRAM_CANALE)}" target="_blank" rel="noopener">📢 Segui il canale con tutte le segnalazioni</a>` : ''}
+    <h3>🔔 Notifiche del browser</h3>
+    <p class="muted">Alternativa a Telegram (consigliata solo su Android).</p>
+    <label class="f">Raggio: <span id="rgV">${p.raggio}</span> km</label>
+    <input type="range" id="rg" min="1" max="25" value="${p.raggio}">
+    <div class="chips" id="spN" style="margin-top:10px">
+      <button type="button" class="chip ${p.specie.includes('cane') ? 'on' : ''}" data-v="cane">🐶 Cani</button>
+      <button type="button" class="chip ${p.specie.includes('gatto') ? 'on' : ''}" data-v="gatto">🐱 Gatti</button></div>
+    <button class="submit trovato" id="pushOn">${p.on ? '🔄 Aggiorna zona e preferenze' : '🔔 Attiva notifiche'}</button>
+    ${p.on ? `<button class="ghost" id="pushOff">🔕 Disattiva notifiche</button>` : ''}
+    ${/iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone ? `<p class="muted">📱 Su iPhone: tocca Condividi → "Aggiungi alla schermata Home", poi apri Fiuto da lì per attivare le notifiche.</p>` : ''}
+    <h3>👤 Il tuo account</h3>
+    ${!sb ? `<p class="muted">In modalità demo i dati restano su questo dispositivo.</p>`
+      : anon ? `<p class="muted">Ora sei anonimo: se cancelli i dati del browser perdi segnalazioni e chat. Collega un'email per ritrovarle su qualsiasi dispositivo (nessuna password).</p>
+        <input type="text" inputmode="email" id="email" placeholder="la-tua@email.it" autocomplete="email">
+        <div class="btn-grid"><button id="accSave" style="background:var(--ink);color:#fff">Salva account</button><button id="accLogin">Ho già un account</button></div>`
+      : `<div class="set-row"><div><b>${esc(user.email)}</b><span class="muted">Account salvato ✓</span></div><button class="mini" id="accOut">Esci</button></div>`}
+    <h3>🛡️ Sicurezza</h3>
+    <div class="set-row"><div><b>Persone bloccate</b><span class="muted">${Safety.blocked.size} persone</span></div></div>
+    <p class="muted">Fiuto non chiede mai pagamenti. Diffida di chi ti chiede soldi o ricariche per restituire un animale.</p>`);
+  if ($('#tgOn')) $('#tgOn').onclick = async () => {
+    const b = $('#tgOn'); b.disabled = true; b.textContent = 'Apro Telegram…';
+    const { data, error } = await sb.rpc('telegram_codice');
+    if (error){ b.disabled = false; b.textContent = '📨 Ricevi avvisi su Telegram'; return toast('Errore: ' + error.message); }
+    location.href = `https://t.me/${CONFIG.TELEGRAM_BOT}?start=${data}`;
+  };
+  if ($('#tgOff')) $('#tgOff').onclick = async () => {
+    const { error } = await sb.from('telegram_utenti').delete().eq('user_id', user.id);
+    toast(error ? 'Errore: ' + error.message : 'Telegram scollegato'); openSettings();
+  };
+  $('#rg').oninput = e => $('#rgV').textContent = e.target.value;
+  $('#spN').onclick = e => { const b = e.target.closest('.chip'); if (b) b.classList.toggle('on'); };
+  $('#pushOn').onclick = async () => {
+    const sp = [...$('#spN').querySelectorAll('.on')].map(b => b.dataset.v);
+    try { await Push.enable(+$('#rg').value, sp.length ? sp : ['cane','gatto']); toast('🔔 Notifiche attive'); openSettings(); }
+    catch(e){ toast(e.message); }
+  };
+  if ($('#pushOff')) $('#pushOff').onclick = async () => { await Push.disable(); toast('Notifiche disattivate'); openSettings(); };
+  const redirect = location.origin + location.pathname;
+  if ($('#accSave')) $('#accSave').onclick = async () => {
+    const email = $('#email').value.trim(); if (!/.+@.+\..+/.test(email)) return toast('Email non valida');
+    const { error } = await sb.auth.updateUser({ email }, { emailRedirectTo:redirect });
+    toast(error ? error.message : '📧 Controlla la mail e conferma il link');
+  };
+  if ($('#accLogin')) $('#accLogin').onclick = async () => {
+    const email = $('#email').value.trim(); if (!/.+@.+\..+/.test(email)) return toast('Email non valida');
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false, emailRedirectTo:redirect } });
+    toast(error ? error.message : '📧 Ti abbiamo mandato il link per entrare');
+  };
+  if ($('#accOut')) $('#accOut').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+}
+$('#btnSettings').onclick = openSettings;
+
+/* ---------- LINK DIRETTI: #s-<id> (segnalazione) e #chat-<id> (conversazione) ---------- */
+async function openFromHash(){
+  const h = location.hash;
+  let m = h.match(/^#s-([0-9a-zA-Z-]+)$/);
+  if (m){
+    let r = Store.list.find(x => x.id === m[1]);
+    if (!r && sb){
+      const { data } = await sb.from('segnalazioni').select(COLS).eq('id', m[1]).maybeSingle();
+      if (data && data.stato !== 'attivo') return toast(data.stato === 'risolto' ? '🎉 Questo animale è già tornato a casa!' : 'Segnalazione non più disponibile');
+      if (data){ Store.list.unshift(data); render(); r = data; }
+    }
+    if (r){ map.setView([r.lat, r.lng], 15); showDetail(r.id); } else toast('Segnalazione non trovata');
+    return;
+  }
+  m = h.match(/^#chat-([0-9a-zA-Z-]+)$/);
+  if (m){ const c = Chat.convs.find(x => x.id === m[1]); if (c) openChat(c); }
+}
+window.addEventListener('hashchange', openFromHash);
+
+/* ---------- AVVIO ---------- */
+(async () => {
+  $('#modeLabel').textContent = sb ? '● live' : 'demo';
+  if (sb){
+    let { data:{ session } } = await sb.auth.getSession();
+    if (!session){
+      const { data, error } = await sb.auth.signInAnonymously();
+      if (error) toast('Attiva "Anonymous sign-ins" in Supabase → Authentication');
+      session = data?.session;
+    }
+    if (session) ME = session.user.id;
+    // dopo il login col link email l'utente cambia: ricarico per prendere i suoi dati
+    sb.auth.onAuthStateChange((ev, s) => { if (s && s.user.id !== ME) location.reload(); });
+  }
+  Push.register();
+  await Store.load(); await Safety.load(); render();
+  await Chat.load(); updateChatBadge(); Chat.subscribe();
+  if (location.hash) openFromHash();
+  Store.subscribe((r, ev) => {
+    render();
+    if (ev === 'INSERT' && !isMine(r)){
+      const mio = myReports().find(m => score(m, r) >= SOGLIA);
+      toast(mio ? `🎯 Nuovo possibile match per la tua segnalazione!` : `${emoji(r)} Nuova segnalazione in zona`);
+    }
+  });
+  locate(false);
+})();
+</script>
+</body>
+</html>
