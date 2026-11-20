@@ -480,9 +480,25 @@ function locate(fly = true){
 $('#btnLocate').onclick = () => locate(true);
 
 /* ---------- SHEET ---------- */
-function openSheet(html, full = false){ $('#sheet').classList.toggle('full', full); if (!full) Chat.openId = null; $('#sheetBody').innerHTML = html; $('#sheetBody').scrollTop = 0; $('#sheet').classList.add('open'); $('#backdrop').classList.add('open'); }
-function closeSheet(){ Chat.openId = null; $('#sheet').classList.remove('open'); $('#backdrop').classList.remove('open'); if (highlight.size){ highlight.clear(); render(); } }
-$('#backdrop').onclick = closeSheet;
+/* Tasto Indietro (Android / gesto iPhone): ogni scheda o selezione posizione aggiunge
+   UNA voce alla cronologia, così "indietro" chiude la scheda invece di uscire dall'app. */
+let ovl = false;
+function ovlPush(){ if (!ovl){ try { history.pushState({ fiuto:1 }, ''); ovl = true; } catch(e){} } }
+function ovlPop(){ if (ovl){ ovl = false; history.back(); } }
+window.addEventListener('popstate', () => {
+  if (!ovl) return;
+  ovl = false;
+  if (document.body.classList.contains('picking')){ document.body.classList.remove('picking'); draft = null; }
+  if ($('#sheet').classList.contains('open')) closeSheet({ fromPop:true });
+});
+function openSheet(html, full = false){ ovlPush(); $('#sheet').classList.toggle('full', full); if (!full) Chat.openId = null; $('#sheetBody').innerHTML = html; $('#sheetBody').scrollTop = 0; $('#sheet').classList.add('open'); $('#backdrop').classList.add('open'); }
+// keep: la scheda si chiude ma si passa subito a un'altra schermata (es. scelta posizione)
+function closeSheet(opts = {}){
+  Chat.openId = null; $('#sheet').classList.remove('open'); $('#backdrop').classList.remove('open');
+  if (highlight.size){ highlight.clear(); render(); }
+  if (!opts.keep && !opts.fromPop) ovlPop();
+}
+$('#backdrop').onclick = () => closeSheet();
 
 function thumb(r, cls){ return r.foto_url ? `<div class="${cls}" style="background-image:url('${esc(r.foto_url)}')"></div>` : `<div class="${cls}">${emoji(r)}</div>`; }
 function cardHTML(r, extra = ''){
@@ -626,16 +642,17 @@ $('#btnAdd').onclick = () => openSheet(`
 $('#sheetBody').addEventListener('click', e => {
   const b = e.target.closest('[data-t]'); if (!b) return;
   draft = { tipo:b.dataset.t };
-  closeSheet(); startPick();
+  closeSheet({ keep:true }); startPick();
 });
 
 function startPick(){
+  ovlPush();
   document.body.classList.add('picking');
   $('#pickText').textContent = draft.tipo === 'perso' ? 'Sposta la mappa dove l\'hai visto l\'ultima volta' : 'Sposta la mappa dove l\'hai visto';
   if (myPos) map.setView([myPos.lat, myPos.lng], 17);
 }
 $('#pickGps').onclick = () => locate(true);
-$('#pickCancel').onclick = () => { document.body.classList.remove('picking'); draft = null; };
+$('#pickCancel').onclick = () => { document.body.classList.remove('picking'); draft = null; ovlPop(); };
 $('#pickOk').onclick = () => {
   const c = map.getCenter(); draft.lat = c.lat; draft.lng = c.lng;
   document.body.classList.remove('picking'); openForm();
@@ -688,7 +705,7 @@ function openForm(){
     photoBlob = await resize(f, 900);
     $('#ph').style.backgroundImage = `url(${URL.createObjectURL(photoBlob)})`; $('#ph').textContent = '';
   };
-  $('#reposition').onclick = () => { closeSheet(); startPick(); };
+  $('#reposition').onclick = () => { closeSheet({ keep:true }); startPick(); };
   const sic = $('#alSicuro');
   if (sic) sic.onchange = () => { if (sic.checked) $('#approxChk').checked = true; $('#approxHint').style.display = sic.checked ? 'block' : 'none'; };
   frm.onsubmit = async e => {
