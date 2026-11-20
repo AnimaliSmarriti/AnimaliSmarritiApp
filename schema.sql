@@ -257,6 +257,60 @@ returns setof public.push_iscrizioni language sql stable security definer set se
 $$;
 revoke execute on function public.iscritti_vicini(double precision, double precision, text, uuid) from public, anon, authenticated;
 
+-- ============ TELEGRAM ============
+-- Chi riceve gli avvisi dal bot. user_id è nullo per chi usa solo il bot, senza aver mai aperto Fiuto.
+create table if not exists public.telegram_utenti (
+  chat_id     bigint primary key,
+  user_id     uuid unique,
+  created_at  timestamptz not null default now(),
+  lat         double precision,
+  lng         double precision,
+  raggio_km   int not null default 5 check (raggio_km between 1 and 50),
+  specie      text[] not null default '{cane,gatto}',
+  attivo      boolean not null default true
+);
+alter table public.telegram_utenti enable row level security;
+drop policy if exists "tg_own_select" on public.telegram_utenti;
+create policy "tg_own_select" on public.telegram_utenti for select to authenticated using (user_id = auth.uid());
+drop policy if exists "tg_own_delete" on public.telegram_utenti;
+create policy "tg_own_delete" on public.telegram_utenti for delete to authenticated using (user_id = auth.uid());
+grant select, delete on public.telegram_utenti to authenticated;   -- inserimenti e modifiche solo dal bot
+
+-- Codici monouso per collegare l'account Fiuto al bot (t.me/Bot?start=CODICE), validi 30 minuti
+create table if not exists public.telegram_codici (
+  codice      text primary key,
+  user_id     uuid not null,
+  created_at  timestamptz not null default now()
+);
+alter table public.telegram_codici enable row level security;   -- nessuna policy: solo funzioni e service role
+
+create or replace function public.telegram_codice() returns text
+language plpgsql security definer set search_path = public as $$
+declare c text;
+begin
+  if auth.uid() is null then raise exception 'Non autenticato'; end if;
+  delete from telegram_codici where user_id = auth.uid() or created_at < now() - interval '30 minutes';
+  c := encode(gen_random_bytes(12), 'hex');
+  insert into telegram_codici(codice, user_id) values (c, auth.uid());
+  return c;
+end $$;
+revoke execute on function public.telegram_codice() from public, anon;
+grant execute on function public.telegram_codice() to authenticated;
+
+-- usata solo dalla Edge Function
+create or replace function public.telegram_vicini(p_lat double precision, p_lng double precision, p_specie text, p_escludi uuid)
+returns setof public.telegram_utenti language sql stable security definer set search_path = public as $$
+  select * from telegram_utenti t
+  where t.attivo and t.lat is not null
+    and t.user_id is distinct from p_escludi
+    and p_specie = any (t.specie)
+    and 6371 * 2 * asin(sqrt(
+          power(sin(radians(p_lat - t.lat) / 2), 2) +
+          cos(radians(t.lat)) * cos(radians(p_lat)) * power(sin(radians(p_lng - t.lng) / 2), 2)
+        )) <= t.raggio_km;
+$$;
+revoke execute on function public.telegram_vicini(double precision, double precision, text, uuid) from public, anon, authenticated;
+
 -- ============ REALTIME ============
 do $$
 declare t text;
